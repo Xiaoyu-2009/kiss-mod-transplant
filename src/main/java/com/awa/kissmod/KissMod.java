@@ -1,62 +1,41 @@
 package com.awa.kissmod;
 
-import com.awa.kissmod.packet.KissC2SPacket;
-import com.awa.kissmod.packet.KissS2CPacket;
-import net.fabricmc.api.*;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.entity.Entity;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.Registry;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.util.*;
-import net.minecraft.world.World;
-import net.minecraft.server.world.ServerWorld;
+import com.awa.kissmod.client.KissModClient;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvent;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.loading.FMLEnvironment;
 
-import java.util.UUID;
+@Mod(KissMod.MOD_ID)
+public class KissMod {
+    public static final String MOD_ID = "kissmod";
+    
+    public static final ResourceLocation CUSTOM_SOUND_ID = ResourceLocation.parse(MOD_ID + ":custom_sound");
+    public static final SoundEvent CUSTOM_SOUND_EVENT = SoundEvent.createVariableRangeEvent(CUSTOM_SOUND_ID);
+    
+    public static final ResourceLocation CUSTOM_SOUND1_ID = ResourceLocation.parse(MOD_ID + ":custom_sound1");
+    public static final SoundEvent CUSTOM_SOUND1_EVENT = SoundEvent.createVariableRangeEvent(CUSTOM_SOUND1_ID);
+    
+    public static final ResourceLocation CUSTOM_SOUND2_ID = ResourceLocation.parse(MOD_ID + ":custom_sound2");
+    public static final SoundEvent CUSTOM_SOUND2_EVENT = SoundEvent.createVariableRangeEvent(CUSTOM_SOUND2_ID);
 
-public class KissMod implements ModInitializer {
-	public static final String MOD_ID = "kiss-mod";
-	public static final Identifier CUSTOM_SOUND_ID = new Identifier(MOD_ID, "custom_sound");
-	public static final SoundEvent CUSTOM_SOUND_EVENT = Registry.register(
-			Registries.SOUND_EVENT,
-			CUSTOM_SOUND_ID,
-			SoundEvent.of(CUSTOM_SOUND_ID)
-	);
-	public static final Identifier CUSTOM_SOUND1_ID = new Identifier(MOD_ID, "custom_sound1");
-	public static final SoundEvent CUSTOM_SOUND1_EVENT = Registry.register(
-			Registries.SOUND_EVENT,
-			CUSTOM_SOUND1_ID,
-			SoundEvent.of(CUSTOM_SOUND1_ID)
-	);
-
-	public static final Identifier CUSTOM_SOUND2_ID = new Identifier(MOD_ID, "custom_sound2");
-	public static final SoundEvent CUSTOM_SOUND2_EVENT = Registry.register(
-			Registries.SOUND_EVENT,
-			CUSTOM_SOUND2_ID,
-			SoundEvent.of(CUSTOM_SOUND2_ID)
-	);
-
-	@Override
-	public void onInitialize() {
-		registerNetworkReceiver();
-	}
-	private void registerNetworkReceiver() {
-		ServerPlayNetworking.registerGlobalReceiver(KissC2SPacket.PACKET_ID, (server, player, handler, buf, responseSender) -> {
-			KissC2SPacket packet = new KissC2SPacket(buf);
-			UUID targetUuid = packet.getKissedEntityUuid();
-			UUID senderUuid = packet.getSenderUuid();
-			World world = player.getWorld();
-			Entity target = ((ServerWorld) world).getEntity(targetUuid);
-
-			if (target != null) {
-				KissS2CPacket broadcastPacket = new KissS2CPacket(target.getUuid(), senderUuid);
-				for (ServerPlayerEntity nearbyPlayer : ((ServerWorld) world).getPlayers()) {
-					if (!nearbyPlayer.getUuid().equals(senderUuid)) {
-						ServerPlayNetworking.send(nearbyPlayer, KissS2CPacket.PACKET_ID, broadcastPacket.write());
-					}
-				}
-			}
-		});
-	}
+    public KissMod(IEventBus modEventBus) {
+        modEventBus.addListener(this::registerSounds);
+        
+        if (FMLEnvironment.dist == Dist.CLIENT) {
+            KissModClient.init(modEventBus);
+        }
+    }
+    
+    private void registerSounds(net.neoforged.neoforge.registries.RegisterEvent event) {
+        if (event.getRegistryKey().equals(BuiltInRegistries.SOUND_EVENT.key())) {
+            Registry.register(BuiltInRegistries.SOUND_EVENT, CUSTOM_SOUND_ID, CUSTOM_SOUND_EVENT);
+            Registry.register(BuiltInRegistries.SOUND_EVENT, CUSTOM_SOUND1_ID, CUSTOM_SOUND1_EVENT);
+            Registry.register(BuiltInRegistries.SOUND_EVENT, CUSTOM_SOUND2_ID, CUSTOM_SOUND2_EVENT);
+        }
+    }
 }

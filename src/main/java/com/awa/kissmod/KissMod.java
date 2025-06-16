@@ -2,61 +2,76 @@ package com.awa.kissmod;
 
 import com.awa.kissmod.packet.KissC2SPacket;
 import com.awa.kissmod.packet.KissS2CPacket;
-import net.fabricmc.api.*;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.entity.Entity;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.Registry;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.util.*;
-import net.minecraft.world.World;
-import net.minecraft.server.world.ServerWorld;
+import com.awa.kissmod.client.KissModClient;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.DistExecutor;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.minecraftforge.network.NetworkRegistry;
+import net.minecraftforge.network.simple.SimpleChannel;
+import net.minecraftforge.network.NetworkDirection;
+import net.minecraftforge.registries.DeferredRegister;
+import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraftforge.registries.RegistryObject;
 
-import java.util.UUID;
+import java.util.Optional;
 
-public class KissMod implements ModInitializer {
-	public static final String MOD_ID = "kiss-mod";
-	public static final Identifier CUSTOM_SOUND_ID = new Identifier(MOD_ID, "custom_sound");
-	public static final SoundEvent CUSTOM_SOUND_EVENT = Registry.register(
-			Registries.SOUND_EVENT,
-			CUSTOM_SOUND_ID,
-			SoundEvent.of(CUSTOM_SOUND_ID)
-	);
-	public static final Identifier CUSTOM_SOUND1_ID = new Identifier(MOD_ID, "custom_sound1");
-	public static final SoundEvent CUSTOM_SOUND1_EVENT = Registry.register(
-			Registries.SOUND_EVENT,
-			CUSTOM_SOUND1_ID,
-			SoundEvent.of(CUSTOM_SOUND1_ID)
-	);
+@Mod(KissMod.MOD_ID)
+public class KissMod {
+    public static final String MOD_ID = "kissmod";
 
-	public static final Identifier CUSTOM_SOUND2_ID = new Identifier(MOD_ID, "custom_sound2");
-	public static final SoundEvent CUSTOM_SOUND2_EVENT = Registry.register(
-			Registries.SOUND_EVENT,
-			CUSTOM_SOUND2_ID,
-			SoundEvent.of(CUSTOM_SOUND2_ID)
-	);
+    private static final String PROTOCOL_VERSION = "1";
+    public static final SimpleChannel NETWORK_CHANNEL = NetworkRegistry.newSimpleChannel(
+            new ResourceLocation(MOD_ID, "main"),
+            () -> PROTOCOL_VERSION,
+            PROTOCOL_VERSION::equals,
+            PROTOCOL_VERSION::equals);
 
-	@Override
-	public void onInitialize() {
-		registerNetworkReceiver();
-	}
-	private void registerNetworkReceiver() {
-		ServerPlayNetworking.registerGlobalReceiver(KissC2SPacket.PACKET_ID, (server, player, handler, buf, responseSender) -> {
-			KissC2SPacket packet = new KissC2SPacket(buf);
-			UUID targetUuid = packet.getKissedEntityUuid();
-			UUID senderUuid = packet.getSenderUuid();
-			World world = player.getWorld();
-			Entity target = ((ServerWorld) world).getEntity(targetUuid);
+    private static final DeferredRegister<SoundEvent> SOUND_EVENTS = DeferredRegister
+            .create(ForgeRegistries.SOUND_EVENTS, MOD_ID);
 
-			if (target != null) {
-				KissS2CPacket broadcastPacket = new KissS2CPacket(target.getUuid(), senderUuid);
-				for (ServerPlayerEntity nearbyPlayer : ((ServerWorld) world).getPlayers()) {
-					if (!nearbyPlayer.getUuid().equals(senderUuid)) {
-						ServerPlayNetworking.send(nearbyPlayer, KissS2CPacket.PACKET_ID, broadcastPacket.write());
-					}
-				}
-			}
-		});
-	}
+    public static final RegistryObject<SoundEvent> CUSTOM_SOUND_EVENT = SOUND_EVENTS.register("custom_sound",
+            () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(MOD_ID, "custom_sound")));
+
+    public static final RegistryObject<SoundEvent> CUSTOM_SOUND1_EVENT = SOUND_EVENTS.register("custom_sound1",
+            () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(MOD_ID, "custom_sound1")));
+
+    public static final RegistryObject<SoundEvent> CUSTOM_SOUND2_EVENT = SOUND_EVENTS.register("custom_sound2",
+            () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(MOD_ID, "custom_sound2")));
+
+    public KissMod() {
+        IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
+
+        SOUND_EVENTS.register(modEventBus);
+
+        modEventBus.addListener(this::commonSetup);
+
+        MinecraftForge.EVENT_BUS.register(this);
+
+        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> KissModClient.init(modEventBus));
+    }
+
+    private void commonSetup(final FMLCommonSetupEvent event) {
+        event.enqueueWork(() -> {
+            registerNetworkPackets();
+        });
+    }
+
+    private void registerNetworkPackets() {
+        NETWORK_CHANNEL.registerMessage(0, KissC2SPacket.class,
+                KissC2SPacket::encode,
+                KissC2SPacket::decode,
+                KissC2SPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
+        NETWORK_CHANNEL.registerMessage(1, KissS2CPacket.class,
+                KissS2CPacket::encode,
+                KissS2CPacket::decode,
+                KissS2CPacket::handle,
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+    }
 }

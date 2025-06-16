@@ -33,4 +33,4 @@ public class KissModConfig {
             prop.store(output, "KissMod Configuration");
         } catch (IOException e) {}
     }
-}
+} 

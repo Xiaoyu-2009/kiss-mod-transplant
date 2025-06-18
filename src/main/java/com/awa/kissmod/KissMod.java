@@ -1,77 +1,97 @@
 package com.awa.kissmod;
 
+import com.awa.kissmod.client.KissModClient;
 import com.awa.kissmod.packet.KissC2SPacket;
 import com.awa.kissmod.packet.KissS2CPacket;
-import com.awa.kissmod.client.KissModClient;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.sounds.SoundEvent;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.fml.DistExecutor;
+import net.minecraft.util.ResourceLocation;
+import net.minecraft.util.SoundEvent;
+import net.minecraftforge.client.ClientCommandHandler;
+import net.minecraftforge.event.RegistryEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
-import net.minecraftforge.network.NetworkRegistry;
-import net.minecraftforge.network.simple.SimpleChannel;
-import net.minecraftforge.network.NetworkDirection;
-import net.minecraftforge.registries.DeferredRegister;
-import net.minecraftforge.registries.ForgeRegistries;
-import net.minecraftforge.registries.RegistryObject;
+import net.minecraftforge.fml.common.event.FMLInitializationEvent;
+import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
+import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
+import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import net.minecraftforge.fml.common.network.NetworkRegistry;
+import net.minecraftforge.fml.common.network.simpleimpl.SimpleNetworkWrapper;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraft.command.CommandBase;
+import net.minecraft.command.CommandException;
+import net.minecraft.command.ICommandSender;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.util.text.TextComponentTranslation;
 
-import java.util.Optional;
-
-@Mod(KissMod.MOD_ID)
+@Mod(modid = KissMod.MOD_ID, name = "Kiss Mod", version = "1.0.0", acceptedMinecraftVersions = "[1.12.2]")
+@Mod.EventBusSubscriber
 public class KissMod {
     public static final String MOD_ID = "kissmod";
 
-    private static final String PROTOCOL_VERSION = "1";
-    public static final SimpleChannel NETWORK_CHANNEL = NetworkRegistry.newSimpleChannel(
-            new ResourceLocation(MOD_ID, "main"),
-            () -> PROTOCOL_VERSION,
-            PROTOCOL_VERSION::equals,
-            PROTOCOL_VERSION::equals);
+    @Mod.Instance(MOD_ID)
+    public static KissMod instance;
 
-    private static final DeferredRegister<SoundEvent> SOUND_EVENTS = DeferredRegister
-            .create(ForgeRegistries.SOUND_EVENTS, MOD_ID);
+    public static final SimpleNetworkWrapper NETWORK_CHANNEL = NetworkRegistry.INSTANCE.newSimpleChannel(MOD_ID);
 
-    public static final RegistryObject<SoundEvent> CUSTOM_SOUND_EVENT = SOUND_EVENTS.register("custom_sound",
-            () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(MOD_ID, "custom_sound")));
+    public static SoundEvent[] CUSTOM_SOUNDS = new SoundEvent[3];
+    
+    @Mod.EventHandler
+    public void preInit(FMLPreInitializationEvent event) {
+        ResourceLocation customSoundLoc = new ResourceLocation(MOD_ID, "custom_sound");
+        ResourceLocation customSound1Loc = new ResourceLocation(MOD_ID, "custom_sound1");
+        ResourceLocation customSound2Loc = new ResourceLocation(MOD_ID, "custom_sound2");
+        
+        CUSTOM_SOUNDS[0] = new SoundEvent(customSoundLoc).setRegistryName(customSoundLoc);
+        CUSTOM_SOUNDS[1] = new SoundEvent(customSound1Loc).setRegistryName(customSound1Loc);
+        CUSTOM_SOUNDS[2] = new SoundEvent(customSound2Loc).setRegistryName(customSound2Loc);
 
-    public static final RegistryObject<SoundEvent> CUSTOM_SOUND1_EVENT = SOUND_EVENTS.register("custom_sound1",
-            () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(MOD_ID, "custom_sound1")));
-
-    public static final RegistryObject<SoundEvent> CUSTOM_SOUND2_EVENT = SOUND_EVENTS.register("custom_sound2",
-            () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(MOD_ID, "custom_sound2")));
-
-    public KissMod() {
-        IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
-
-        SOUND_EVENTS.register(modEventBus);
-
-        modEventBus.addListener(this::commonSetup);
-
-        MinecraftForge.EVENT_BUS.register(this);
-
-        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> KissModClient.init(modEventBus));
+        int packetId = 0;
+        NETWORK_CHANNEL.registerMessage(KissC2SPacket.Handler.class, KissC2SPacket.class, packetId++, Side.SERVER);
+        NETWORK_CHANNEL.registerMessage(KissS2CPacket.Handler.class, KissS2CPacket.class, packetId++, Side.CLIENT);
     }
 
-    private void commonSetup(final FMLCommonSetupEvent event) {
-        event.enqueueWork(() -> {
-            registerNetworkPackets();
-        });
+    @Mod.EventHandler
+    public void init(FMLInitializationEvent event) {
+        if (event.getSide().isClient()) {
+            KissModClient.init();
+
+            ClientCommandHandler.instance.registerCommand(new CommandBase() {
+                @Override
+                public String getName() {
+                    return "kissmod-rightclick";
+                }
+
+                @Override
+                public String getUsage(ICommandSender sender) {
+                    return "/kissmod-rightclick [true|false]";
+                }
+                
+                @Override
+                public int getRequiredPermissionLevel() {
+                    return 0;
+                }
+
+                @Override
+                public void execute(MinecraftServer server, ICommandSender sender, String[] args) throws CommandException {
+                    if (args.length > 0) {
+                        boolean state = Boolean.parseBoolean(args[0]);
+                        KissModClient.setRightClickEnabled(state);
+                    } else {
+                        KissModClient.toggleRightClickEnabled();
+                    }
+                    
+                    String translationKey = KissModClient.rightClickEnabled ? "kissmod.toggle.enabled" : "kissmod.toggle.disabled";
+                    sender.sendMessage(new TextComponentTranslation(translationKey));
+                }
+            });
+        }
     }
 
-    private void registerNetworkPackets() {
-        NETWORK_CHANNEL.registerMessage(0, KissC2SPacket.class,
-                KissC2SPacket::encode,
-                KissC2SPacket::decode,
-                KissC2SPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_SERVER));
-        NETWORK_CHANNEL.registerMessage(1, KissS2CPacket.class,
-                KissS2CPacket::encode,
-                KissS2CPacket::decode,
-                KissS2CPacket::handle,
-                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
+    @Mod.EventHandler
+    public void postInit(FMLPostInitializationEvent event) {}
+    
+    @SubscribeEvent
+    public static void registerSounds(RegistryEvent.Register<SoundEvent> event) {
+        for (SoundEvent sound : CUSTOM_SOUNDS) {
+            event.getRegistry().register(sound);
+        }
     }
-}
+} 

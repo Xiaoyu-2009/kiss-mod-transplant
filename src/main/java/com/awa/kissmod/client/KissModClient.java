@@ -3,167 +3,134 @@ package com.awa.kissmod.client;
 import com.awa.kissmod.KissMod;
 import com.awa.kissmod.KissModConfig;
 import com.awa.kissmod.packet.KissC2SPacket;
-import com.mojang.brigadier.arguments.BoolArgumentType;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.KeyMapping;
-import net.minecraft.core.particles.ParticleTypes;
-import net.minecraft.network.chat.Component;
-import net.minecraft.sounds.SoundSource;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.level.Level;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.api.distmarker.OnlyIn;
-import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
+import net.minecraft.client.settings.KeyBinding;
+import net.minecraft.entity.Entity;
+import net.minecraft.util.EnumParticleTypes;
+import net.minecraft.util.SoundCategory;
+import net.minecraft.world.World;
 import net.minecraftforge.client.settings.KeyConflictContext;
+import net.minecraftforge.client.settings.KeyModifier;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.client.registry.ClientRegistry;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
-import org.lwjgl.glfw.GLFW;
-import com.mojang.brigadier.CommandDispatcher;
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraftforge.client.event.RegisterClientCommandsEvent;
-import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import net.minecraftforge.fml.common.gameevent.TickEvent;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
+import org.lwjgl.input.Keyboard;
 
 import java.util.Random;
 import java.util.UUID;
 
-@OnlyIn(Dist.CLIENT)
-@Mod.EventBusSubscriber(modid = KissMod.MOD_ID, value = Dist.CLIENT)
+@SideOnly(Side.CLIENT)
+@Mod.EventBusSubscriber(Side.CLIENT)
 public class KissModClient {
     public static boolean rightClickEnabled = KissModConfig.loadConfig();
-    private static KeyMapping kissKey;
+    private static KeyBinding kissKey;
     private static boolean wasKeyPressed = false;
     private static long lastTriggerTime = 0;
     private static final long TRIGGER_INTERVAL = 175;
-    
-    public static void init(IEventBus modEventBus) {
-        modEventBus.addListener(KissModClient::clientSetup);
-        modEventBus.addListener(KissModClient::registerKeyBindings);
 
+    public static void init() {
+        kissKey = new KeyBinding(
+        "key.kissmod.kiss", KeyConflictContext.IN_GAME,
+        KeyModifier.NONE, Keyboard.KEY_F7,
+        "category.kissmod.keybindings");
+        ClientRegistry.registerKeyBinding(kissKey);
         MinecraftForge.EVENT_BUS.register(KissModClient.class);
     }
-    
-    private static void clientSetup(final FMLClientSetupEvent event) {}
-    
-    private static void registerKeyBindings(final RegisterKeyMappingsEvent event) {
-        kissKey = new KeyMapping(
-                "key.kissmod.kiss", 
-                KeyConflictContext.IN_GAME,
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_F7,
-                "category.kissmod.keybindings"
-        );
-        event.register(kissKey);
-    }
-    
-    @SubscribeEvent
-    public static void onRegisterClientCommands(RegisterClientCommandsEvent event) {
-        CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
-        
-        dispatcher.register(
-            net.minecraft.commands.Commands.literal("kissmod-rightclick")
-                .executes(context -> {
-                    rightClickEnabled = !rightClickEnabled;
-                    KissModConfig.saveConfig(rightClickEnabled);
-                    String translationKey = rightClickEnabled ? "kissmod.toggle.enabled" : "kissmod.toggle.disabled";
-                    context.getSource().sendSuccess(() -> Component.translatable(translationKey), false);
-                    return 1;
-                })
-                .then(net.minecraft.commands.Commands.argument("state", BoolArgumentType.bool())
-                    .executes(context -> {
-                        boolean state = BoolArgumentType.getBool(context, "state");
-                        rightClickEnabled = state;
-                        KissModConfig.saveConfig(state);
-                        String translationKey = state ? "kissmod.toggle.enabled" : "kissmod.toggle.disabled";
-                        context.getSource().sendSuccess(() -> Component.translatable(translationKey), false);
-                        return 1;
-                    })
-                )
-        );
-    }
-    
+
     @SubscribeEvent
     public static void onRightClickEntity(PlayerInteractEvent.EntityInteract event) {
-        if (!rightClickEnabled || !event.getLevel().isClientSide()) return;
-        
-        if (event.getEntity().isShiftKeyDown()) {
+        if (!rightClickEnabled || !event.getWorld().isRemote)
+            return;
+
+        if (event.getEntityPlayer().isSneaking()) {
             Entity target = event.getTarget();
             if (target != null) {
                 UUID senderUuid = null;
-                if (Minecraft.getInstance().player != null) {
-                    senderUuid = Minecraft.getInstance().player.getUUID();
+                if (Minecraft.getMinecraft().player != null) {
+                    senderUuid = Minecraft.getMinecraft().player.getUniqueID();
                 }
-                KissC2SPacket packet = new KissC2SPacket(target.getUUID(), senderUuid);
+                KissC2SPacket packet = new KissC2SPacket(target.getUniqueID(), senderUuid);
                 KissMod.NETWORK_CHANNEL.sendToServer(packet);
-                triggerEffect(target, event.getLevel());
+                triggerEffect(target, event.getWorld());
                 event.setCanceled(true);
             }
         }
     }
-    
+
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) return;
-        
-        boolean isKeyPressed = kissKey != null && kissKey.isDown();
+        if (event.phase != TickEvent.Phase.END)
+            return;
+
+        boolean isKeyPressed = kissKey.isKeyDown();
         long currentTime = System.currentTimeMillis();
-        
+
         if (isKeyPressed && (!wasKeyPressed || (currentTime - lastTriggerTime >= TRIGGER_INTERVAL))) {
-            Minecraft client = Minecraft.getInstance();
-            Entity target = client.crosshairPickEntity;
+            Minecraft client = Minecraft.getMinecraft();
+            Entity target = client.objectMouseOver != null && client.objectMouseOver.entityHit != null
+                    ? client.objectMouseOver.entityHit
+                    : null;
             if (target != null && client.player != null) {
-                UUID senderUuid = client.player.getUUID();
-                KissC2SPacket packet = new KissC2SPacket(target.getUUID(), senderUuid);
+                UUID senderUuid = client.player.getUniqueID();
+                KissC2SPacket packet = new KissC2SPacket(target.getUniqueID(), senderUuid);
                 KissMod.NETWORK_CHANNEL.sendToServer(packet);
-                if (client.level != null) {
-                    triggerEffect(target, client.level);
+                if (client.world != null) {
+                    triggerEffect(target, client.world);
                 }
             }
             lastTriggerTime = currentTime;
         }
         wasKeyPressed = isKeyPressed;
     }
-    
-    public static void triggerEffect(Entity target, Level world) {
-        if (world.isClientSide()) {
+
+    public static void triggerEffect(Entity target, World world) {
+        if (world.isRemote) {
             spawnHeartParticles(world, target);
-            
-            net.minecraft.sounds.SoundEvent[] soundEvents = {
-                    KissMod.CUSTOM_SOUND_EVENT.get(),
-                    KissMod.CUSTOM_SOUND1_EVENT.get(),
-                    KissMod.CUSTOM_SOUND2_EVENT.get()};
-            net.minecraft.sounds.SoundEvent randomSound = soundEvents[new Random().nextInt(soundEvents.length)];
-            
+
+            Random random = new Random();
+            int soundIndex = random.nextInt(3);
+            net.minecraft.util.SoundEvent soundEvent = KissMod.CUSTOM_SOUNDS[soundIndex];
+
             world.playSound(
-                    Minecraft.getInstance().player,
-                    target.getX(), target.getY(), target.getZ(),
-                    randomSound,
-                    SoundSource.PLAYERS,
-                    1.0F, 1.0F
-            );
+                    Minecraft.getMinecraft().player.posX,
+                    Minecraft.getMinecraft().player.posY,
+                    Minecraft.getMinecraft().player.posZ,
+                    soundEvent,
+                    SoundCategory.PLAYERS,
+                    1.0F, 1.0F, false);
         }
     }
-    
-    public static void spawnHeartParticles(Level world, Entity entity) {
-        if (world.isClientSide()) {
-            double x = entity.getX();
-            double y = entity.getY() + entity.getBbHeight();
-            double z = entity.getZ();
-            
+
+    public static void spawnHeartParticles(World world, Entity entity) {
+        if (world.isRemote) {
+            double x = entity.posX;
+            double y = entity.posY + entity.height;
+            double z = entity.posZ;
+
             for (int i = 0; i < 20; i++) {
-                double offsetX = world.getRandom().nextDouble() - 0.5;
-                double offsetY = world.getRandom().nextDouble() - 0.5;
-                double offsetZ = world.getRandom().nextDouble() - 0.5;
-                world.addParticle(
-                        ParticleTypes.HEART,
+                double offsetX = world.rand.nextDouble() - 0.5;
+                double offsetY = world.rand.nextDouble() - 0.5;
+                double offsetZ = world.rand.nextDouble() - 0.5;
+                world.spawnParticle(
+                        EnumParticleTypes.HEART,
                         x + offsetX, y + offsetY, z + offsetZ,
-                        0.0, 0.0, 0.0
-                );
+                        0.0, 0.0, 0.0);
             }
         }
     }
-} 
+
+    public static void toggleRightClickEnabled() {
+        rightClickEnabled = !rightClickEnabled;
+        KissModConfig.saveConfig(rightClickEnabled);
+    }
+
+    public static void setRightClickEnabled(boolean state) {
+        rightClickEnabled = state;
+        KissModConfig.saveConfig(state);
+    }
+}
